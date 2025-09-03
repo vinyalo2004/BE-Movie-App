@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fileUpload = require('express-fileupload');
-const Mux = require('@mux/mux-node'); // ✅ sửa lại import
+const { Mux } = require('@mux/mux-node');
 
 const app = express();
 
@@ -41,9 +41,9 @@ app.post('/api/mux-upload', async (req, res) => {
       console.error('No video file uploaded');
       return res.status(400).json({ error: 'No video file uploaded' });
     }
-    // Xử lý upload lên Mux ở đây...
+    // Nếu nhận được file, log ra để debug
     console.log('Video file:', req.files.video.name);
-    res.json({ success: true });
+    res.json({ success: true, filename: req.files.video.name });
   } catch (err) {
     console.error('Upload error:', err);
     res.status(500).json({ error: err.message });
