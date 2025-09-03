@@ -41,7 +41,7 @@ app.post('/api/mux-upload', async (req, res) => {
       console.error('No video file uploaded');
       return res.status(400).json({ error: 'No video file uploaded' });
     }
-    // TODO: gọi mux.video.assets.create(...) khi bạn muốn upload thật
+    // Xử lý upload lên Mux ở đây...
     console.log('Video file:', req.files.video.name);
     res.json({ success: true });
   } catch (err) {
