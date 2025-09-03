@@ -7,13 +7,35 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Correct constructor for current Mux SDK
-const mux = new Mux({ tokenId: process.env.MUX_TOKEN_ID, tokenSecret: process.env.MUX_TOKEN_SECRET });
+// Correct constructor for current Mux SDK, include signing key if provided
+const mux = new Mux({
+  tokenId: process.env.MUX_TOKEN_ID,
+  tokenSecret: process.env.MUX_TOKEN_SECRET,
+  signingKeyId: process.env.MUX_SIGNING_KEY_ID,
+  signingKeySecret: process.env.MUX_SIGNING_KEY_SECRET,
+});
+
+// Simple password check middleware for admin operations
+function requireAdminPassword(req, res, next) {
+  const provided = req.headers['x-admin-password'] || req.body?.password || req.query?.password;
+  // Accept multiple env names in case of typos/misconfig
+  const expected = process.env.ADMIN_DELETE_PASSWORD 
+    || process.env.ADMIN_PASSWORD 
+    || process.env.DMIN_DELETE_PASSWORD; // fallback for common typo
+  if (!expected) {
+    return res.status(500).json({ error: 'ADMIN_DELETE_PASSWORD is not configured on server' });
+  }
+  if (provided !== expected) {
+    return res.status(401).json({ error: 'Unauthorized: invalid admin password' });
+  }
+  next();
+}
 
 app.post('/api/mux-upload', async (req, res) => {
   try {
+    // playback_policy must be an ARRAY
     const upload = await mux.video.uploads.create({
-      new_asset_settings: { playback_policy: 'public' },
+      new_asset_settings: { playback_policy: ['public'] },
       cors_origin: '*',
     });
     res.json({ uploadUrl: upload.url, uploadId: upload.id });
@@ -25,12 +47,26 @@ app.post('/api/mux-upload', async (req, res) => {
 
 app.get('/api/mux-playback-by-asset/:assetId', async (req, res) => {
   try {
-    const asset = await mux.video.assets.retrieve(req.params.assetId);
-    const playbackId = asset.playback_ids?.[0]?.id;
+    let asset = await mux.video.assets.retrieve(req.params.assetId);
+    let playbackId = asset.playback_ids?.[0]?.id;
+
+    // If asset has no playback id, create a public one now
+    if (!playbackId) {
+      try {
+        const created = await mux.video.assets.playbackIds.create(asset.id, { policy: 'public' });
+        playbackId = created.id;
+        // refresh asset info (optional)
+        asset = await mux.video.assets.retrieve(asset.id);
+      } catch (e) {
+        const code = e?.status || e?.statusCode || 500;
+        console.error('Create public playback id error:', code, e?.message);
+      }
+    }
+
     if (!playbackId) {
       return res.status(200).json({ processing: asset.status !== 'ready', asset });
     }
-    res.json({ playbackUrl: `https://stream.mux.com/${playbackId}.m3u8` });
+    res.json({ playbackUrl: `https://stream.mux.com/${playbackId}.m3u8`, playbackId });
   } catch (error) {
     const code = error?.status || error?.statusCode || 500;
     console.error('Get playback by asset error:', code, error?.message);
@@ -62,9 +98,17 @@ app.get('/api/mux-playback/:id', async (req, res) => {
       const assetId = upload?.asset_id;
       if (assetId) {
         const asset = await mux.video.assets.retrieve(assetId);
-        const playbackId = asset.playback_ids?.[0]?.id;
+        let playbackId = asset.playback_ids?.[0]?.id;
+        if (!playbackId) {
+          try {
+            const created = await mux.video.assets.playbackIds.create(asset.id, { policy: 'public' });
+            playbackId = created.id;
+          } catch (e) {
+            console.error('Create playback id error:', e?.status || e?.statusCode, e?.message);
+          }
+        }
         if (playbackId) {
-          return res.json({ playbackUrl: `https://stream.mux.com/${playbackId}.m3u8`, assetId });
+          return res.json({ playbackUrl: `https://stream.mux.com/${playbackId}.m3u8`, assetId, playbackId });
         }
         return res.json({ processing: true, assetId, asset });
       }
@@ -81,9 +125,17 @@ app.get('/api/mux-playback/:id', async (req, res) => {
     // Try resolve as Asset ID directly
     try {
       const asset = await mux.video.assets.retrieve(id);
-      const playbackId = asset.playback_ids?.[0]?.id;
+      let playbackId = asset.playback_ids?.[0]?.id;
+      if (!playbackId) {
+        try {
+          const created = await mux.video.assets.playbackIds.create(asset.id, { policy: 'public' });
+          playbackId = created.id;
+        } catch (e2) {
+          console.error('Create playback id error:', e2?.status || e2?.statusCode, e2?.message);
+        }
+      }
       if (playbackId) {
-        return res.json({ playbackUrl: `https://stream.mux.com/${playbackId}.m3u8`, assetId: asset.id });
+        return res.json({ playbackUrl: `https://stream.mux.com/${playbackId}.m3u8`, assetId: asset.id, playbackId });
       }
       return res.json({ processing: asset.status !== 'ready', asset });
     } catch (e2) {
@@ -94,6 +146,97 @@ app.get('/api/mux-playback/:id', async (req, res) => {
     }
   } catch (error) {
     console.error('Unexpected error resolving playback:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Signed playback endpoints (fallback if 412 or restricted)
+app.get('/api/mux-signed-playback-by-asset/:assetId', async (req, res) => {
+  try {
+    if (!process.env.MUX_SIGNING_KEY_ID || !process.env.MUX_SIGNING_KEY_SECRET) {
+      return res.status(400).json({ error: 'Signing keys not configured' });
+    }
+    const asset = await mux.video.assets.retrieve(req.params.assetId);
+    let playbackId = asset.playback_ids?.[0]?.id;
+    if (!playbackId) {
+      const created = await mux.video.assets.playbackIds.create(asset.id, { policy: 'signed' });
+      playbackId = created.id;
+    }
+    const token = mux.jwt.signPlaybackId(playbackId, { type: 'video' });
+    return res.json({ playbackUrl: `https://stream.mux.com/${playbackId}.m3u8?token=${token}`, playbackId });
+  } catch (error) {
+    console.error('Signed playback (asset) error:', error?.status || error?.statusCode, error?.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/mux-signed-playback/:playbackId', async (req, res) => {
+  try {
+    if (!process.env.MUX_SIGNING_KEY_ID || !process.env.MUX_SIGNING_KEY_SECRET) {
+      return res.status(400).json({ error: 'Signing keys not configured' });
+    }
+    const token = mux.jwt.signPlaybackId(req.params.playbackId, { type: 'video' });
+    return res.json({ playbackUrl: `https://stream.mux.com/${req.params.playbackId}.m3u8?token=${token}` });
+  } catch (error) {
+    console.error('Signed playback error:', error?.status || error?.statusCode, error?.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a Mux asset (admin protected)
+app.delete('/api/mux-asset/:assetId', requireAdminPassword, async (req, res) => {
+  try {
+    const assetId = req.params.assetId;
+    await mux.video.assets.delete(assetId);
+    return res.json({ ok: true });
+  } catch (error) {
+    const code = error?.status || error?.statusCode || 500;
+    console.error('Delete asset error:', code, error?.message);
+    // If already gone, consider it success for idempotency
+    if (code === 404) return res.json({ ok: true, alreadyDeleted: true });
+    res.status(code).json({ error: error.message, code });
+  }
+});
+
+// Flexible delete: accepts { assetId?, playbackId?, playbackUrl? }
+app.post('/api/mux-asset/delete', requireAdminPassword, async (req, res) => {
+  try {
+    const { assetId: bodyAssetId, playbackId: bodyPlaybackId, playbackUrl } = req.body || {};
+    let assetId = bodyAssetId;
+
+    if (!assetId) {
+      // Try to extract playbackId
+      let playbackId = bodyPlaybackId;
+      if (!playbackId && typeof playbackUrl === 'string') {
+        const match = playbackUrl.match(/stream\.mux\.com\/(.*?)(\.m3u8|\?|$)/);
+        playbackId = match ? match[1] : undefined;
+      }
+      if (playbackId) {
+        try {
+          const playback = await mux.video.playbackIds.retrieve(playbackId);
+          assetId = playback?.object?.id;
+        } catch (e) {
+          const code = e?.status || e?.statusCode;
+          console.warn('Resolve playbackId->assetId failed:', code, e?.message);
+        }
+      }
+    }
+
+    if (!assetId) {
+      return res.status(400).json({ error: 'Missing identifiers. Provide assetId, playbackId, or playbackUrl.' });
+    }
+
+    try {
+      await mux.video.assets.delete(assetId);
+      return res.json({ ok: true, assetId });
+    } catch (e) {
+      const code = e?.status || e?.statusCode || 500;
+      console.error('Flexible delete error:', code, e?.message);
+      if (code === 404) return res.json({ ok: true, alreadyDeleted: true, assetId });
+      return res.status(code).json({ error: e.message, code });
+    }
+  } catch (error) {
+    console.error('Unexpected flexible delete error:', error);
     res.status(500).json({ error: error.message });
   }
 });
