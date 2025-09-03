@@ -41,20 +41,8 @@ function requireAdminPassword(req, res, next) {
 }
 
 app.post('/api/mux-upload', async (req, res) => {
-  if (!req.files || !req.files.video) {
-    return res.status(400).json({ error: 'No video file uploaded' });
-  }
-  try {
-    // playback_policy must be an ARRAY
-    const upload = await mux.video.uploads.create({
-      new_asset_settings: { playback_policy: ['public'] },
-      cors_origin: '*',
-    });
-    res.json({ uploadUrl: upload.url, uploadId: upload.id });
-  } catch (error) {
-    console.error('Mux upload error:', error);
-    res.status(500).json({ error: error.message, detail: error });
-  }
+  // Xử lý upload video ở đây
+  res.json({ success: true });
 });
 
 app.get('/api/mux-playback-by-asset/:assetId', async (req, res) => {
