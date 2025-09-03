@@ -4,7 +4,13 @@ const cors = require('cors');
 const { Mux } = require('@mux/mux-node');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://your-vercel-app.vercel.app' // Thay bằng domain FE thật trên Vercel
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // Correct constructor for current Mux SDK, include signing key if provided
