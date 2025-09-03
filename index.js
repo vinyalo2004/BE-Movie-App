@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fileUpload = require('express-fileupload');
-const { Mux } = require('@mux/mux-node');
+const mux = require('@mux/mux-node');
 
 const app = express();
 
@@ -28,7 +28,7 @@ app.use((req, res, next) => {
 });
 
 // Khởi tạo Mux SDK đúng cách
-const mux = new Mux({
+const muxClient = new mux({
   tokenId: process.env.MUX_TOKEN_ID,
   tokenSecret: process.env.MUX_TOKEN_SECRET,
 });
@@ -41,7 +41,7 @@ app.post('/api/mux-upload', async (req, res) => {
       console.error('No video file uploaded');
       return res.status(400).json({ error: 'No video file uploaded' });
     }
-    // Nếu nhận được file, log ra để debug
+    // Ví dụ: log tên file, chưa upload lên Mux
     console.log('Video file:', req.files.video.name);
     res.json({ success: true, filename: req.files.video.name });
   } catch (err) {
@@ -50,7 +50,7 @@ app.post('/api/mux-upload', async (req, res) => {
   }
 });
 
-// Start server (Railway sẽ tự chọn PORT qua biến môi trường)
+// Railway sẽ tự động truyền PORT qua biến môi trường
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
