@@ -11,6 +11,7 @@ app.use(cors({
   ],
   credentials: true
 }));
+console.log('CORS setup for:', ['https://movie-app-three-gold-76.vercel.app']);
 app.use(express.json());
 app.use(fileUpload());
 
@@ -41,8 +42,19 @@ function requireAdminPassword(req, res, next) {
 }
 
 app.post('/api/mux-upload', async (req, res) => {
-  // Xử lý upload video ở đây
-  res.json({ success: true });
+  console.log('Received upload request');
+  try {
+    if (!req.files || !req.files.video) {
+      console.error('No video file uploaded');
+      return res.status(400).json({ error: 'No video file uploaded' });
+    }
+    // Xử lý upload lên Mux ở đây...
+    console.log('Video file:', req.files.video.name);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Upload error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/mux-playback-by-asset/:assetId', async (req, res) => {
@@ -244,6 +256,11 @@ app.post('/api/mux-asset/delete', async (req, res) => {
     console.error('Unexpected flexible delete error::', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
 });
 
 const PORT = 5000;
