@@ -236,7 +236,7 @@ app.post('/api/mux-asset/delete', requireAdminPassword, async (req, res) => {
       return res.status(code).json({ error: e.message, code });
     }
   } catch (error) {
-    console.error('Unexpected flexible delete error:', error);
+    console.error('Unexpected flexible delete error::', error);
     res.status(500).json({ error: error.message });
   }
 });
