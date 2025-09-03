@@ -1,17 +1,18 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const fileUpload = require('express-fileupload');
 const { Mux } = require('@mux/mux-node');
 
 const app = express();
 app.use(cors({
   origin: [
-    'http://localhost:5173',
-    'https://your-vercel-app.vercel.app' // Thay bằng domain FE thật trên Vercel
+    'https://movie-app-three-gold-76.vercel.app'
   ],
   credentials: true
 }));
 app.use(express.json());
+app.use(fileUpload());
 
 // Correct constructor for current Mux SDK, include signing key if provided
 const mux = new Mux({
@@ -20,6 +21,8 @@ const mux = new Mux({
   signingKeyId: process.env.MUX_SIGNING_KEY_ID,
   signingKeySecret: process.env.MUX_SIGNING_KEY_SECRET,
 });
+
+const ADMIN_DELETE_PASSWORD = process.env.ADMIN_DELETE_PASSWORD;
 
 // Simple password check middleware for admin operations
 function requireAdminPassword(req, res, next) {
@@ -38,6 +41,9 @@ function requireAdminPassword(req, res, next) {
 }
 
 app.post('/api/mux-upload', async (req, res) => {
+  if (!req.files || !req.files.video) {
+    return res.status(400).json({ error: 'No video file uploaded' });
+  }
   try {
     // playback_policy must be an ARRAY
     const upload = await mux.video.uploads.create({
@@ -205,7 +211,12 @@ app.delete('/api/mux-asset/:assetId', requireAdminPassword, async (req, res) => 
 });
 
 // Flexible delete: accepts { assetId?, playbackId?, playbackUrl? }
-app.post('/api/mux-asset/delete', requireAdminPassword, async (req, res) => {
+app.post('/api/mux-asset/delete', async (req, res) => {
+  const password = req.headers['x-admin-password'];
+  if (password !== ADMIN_DELETE_PASSWORD) {
+    return res.status(403).json({ error: 'Sai mật khẩu quản trị' });
+  }
+
   try {
     const { assetId: bodyAssetId, playbackId: bodyPlaybackId, playbackUrl } = req.body || {};
     let assetId = bodyAssetId;
