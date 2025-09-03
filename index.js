@@ -7,11 +7,15 @@ const { Mux } = require('@mux/mux-node');
 const app = express();
 app.use(cors({
   origin: [
-    'https://movie-app-three-gold-76.vercel.app'
+    'https://movie-app-three-gold-76.vercel.app', // FE trên Vercel
+    'http://localhost:5173' // FE local
   ],
   credentials: true
 }));
-console.log('CORS setup for:', ['https://movie-app-three-gold-76.vercel.app']);
+console.log('CORS setup for:', [
+  'https://movie-app-three-gold-76.vercel.app',
+  'http://localhost:5173'
+]);
 app.use(express.json());
 app.use(fileUpload());
 
